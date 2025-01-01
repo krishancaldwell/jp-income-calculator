@@ -7,29 +7,24 @@ struct LogConfig {
     show_summary: bool, // For the percentage breakdowns and final amounts
 }
 
-struct IncomeAnalysis {
-    annual_income: i64,
-    log_config: Option<LogConfig>,
-}
-
 impl LogConfig {
-    fn all() -> Self {
-        LogConfig {
-            show_deductions: true,
-            show_tax_breakdown: true,
-            show_insurance_breakdown: true,
-            show_summary: true,
-        }
-    }
+    // fn all() -> Self {
+    //     LogConfig {
+    //         show_deductions: true,
+    //         show_tax_breakdown: true,
+    //         show_insurance_breakdown: true,
+    //         show_summary: true,
+    //     }
+    // }
 
-    fn summary_only() -> Self {
-        LogConfig {
-            show_deductions: false,
-            show_tax_breakdown: false,
-            show_insurance_breakdown: false,
-            show_summary: true,
-        }
-    }
+    // fn summary_only() -> Self {
+    //     LogConfig {
+    //         show_deductions: false,
+    //         show_tax_breakdown: false,
+    //         show_insurance_breakdown: false,
+    //         show_summary: true,
+    //     }
+    // }
 
     fn none() -> Self {
         LogConfig {
@@ -39,6 +34,29 @@ impl LogConfig {
             show_summary: false,
         }
     }
+}
+
+struct IncomeAnalysis {
+    annual_income: i64,
+    monthly_costs: Option<MonthlyCosts>,
+    log_config: Option<LogConfig>,
+}
+
+struct MonthlyCosts {
+    fixed_costs: i64,      // Fixed monthly costs in yen
+    percentage_costs: f64, // Variable costs as percentage of take-home
+}
+
+impl MonthlyCosts {
+    fn calculate_total(&self, monthly_take_home: i64) -> i64 {
+        let variable_costs = (monthly_take_home as f64 * self.percentage_costs / 100.0) as i64;
+        self.fixed_costs + variable_costs
+    }
+}
+
+struct SavingsTimeframe {
+    months: i64,
+    label: String, // e.g., "1 Year", "2 Years", etc.
 }
 
 /// Tax brackets for national income tax calculation.
@@ -278,8 +296,9 @@ fn get_pension_insurance(assessed_premium: i64) -> i64 {
 fn calculate_take_home(
     annual_income: i64,
     num_dependents: i64,
+    costs: Option<&MonthlyCosts>,
     log_config: Option<LogConfig>,
-) -> i64 {
+) -> (i64, Option<i64>) {
     let basic_deduction = get_basic_deduction(annual_income);
     let income_after_earned_income_deduction = annual_income - basic_deduction;
 
@@ -315,6 +334,9 @@ fn calculate_take_home(
     let percentage_of_net_pay_wrt_income = (net_pay as f64 / annual_income as f64) * 100.0;
 
     let monthly_take_home = net_pay / 12;
+
+    let monthly_after_costs =
+        costs.map(|c| monthly_take_home - c.calculate_total(monthly_take_home));
 
     if let Some(config) = log_config {
         if config.show_deductions {
@@ -384,51 +406,106 @@ fn calculate_take_home(
         }
     }
 
-    monthly_take_home
+    (monthly_take_home, monthly_after_costs)
 }
 
 fn analyze_income(
     income: IncomeAnalysis,
     comparative_income: Option<i64>,
     num_dependents: i64,
+    timeframes: &[SavingsTimeframe],
     is_first: bool,
 ) -> i64 {
     let monthly_salary = income.annual_income / 12;
-    let monthly_take_home =
-        calculate_take_home(income.annual_income, num_dependents, income.log_config);
+    let (monthly_take_home, monthly_after_costs) = calculate_take_home(
+        income.annual_income,
+        num_dependents,
+        income.monthly_costs.as_ref(),
+        income.log_config,
+    );
+
+    let total_costs = monthly_after_costs.map(|after_costs| monthly_take_home - after_costs);
 
     // Print header if this is the first item
     if is_first {
-        println!(
-            "{:<15} {:<20} {:<20} {:<25}",
-            "Annual Salary", "Monthly Salary", "Monthly Takehome", "Increase"
+        let mut header = format!(
+            "{:<12} | {:<16} | {:<16} | {:<21} | {:<23} | {:<15}",
+            "Annual Salary",
+            "Monthly Salary",
+            "Monthly Takehome",
+            "Takehome Increase (%)",
+            "Total Costs (Variable)",
+            "After Costs"
         );
-        println!("{:-<80}", ""); // Print separator line
+
+        // Add timeframe columns to the same header line
+        for timeframe in timeframes {
+            header.push_str(&format!(
+                " | {:<18}",
+                format!("Saved in {}", timeframe.label)
+            ));
+        }
+        println!("{}", header);
+
+        // Calculate total width and print single separator line
+        println!("{:-<width$}", "", width = header.len());
     }
 
     let formatted_annual = format!("¥{}M", income.annual_income / 1_000_000);
 
     if let Some(comparative) = comparative_income {
-        let comparative_monthly = calculate_take_home(comparative, num_dependents, None);
+        let (comparative_monthly, _) = calculate_take_home(
+            comparative,
+            num_dependents,
+            income.monthly_costs.as_ref(),
+            None,
+        );
         let increase = monthly_take_home - comparative_monthly;
         let percentage = ((monthly_take_home as f64 - comparative_monthly as f64)
             / comparative_monthly as f64)
             * 100.0;
 
-        println!(
-            "{:<15} {:<20} {:<20} {:<25}",
+        let costs_display = total_costs.map_or("N/A".to_string(), |c| {
+            if let Some(costs) = &income.monthly_costs {
+                let variable_costs =
+                    (monthly_take_home as f64 * costs.percentage_costs / 100.0) as i64;
+                format!("{} ({})", format_yen(c), format_yen(variable_costs))
+            } else {
+                format_yen(c)
+            }
+        });
+
+        // Print base columns
+        print!(
+            "{:<13} | {:<16} | {:<16} | {:<21} | {:<23} | {:<15}",
             formatted_annual,
             format_yen(monthly_salary),
             format_yen(monthly_take_home),
-            format!("{} ({:.2}%)", format_yen(increase), percentage)
+            format!("{} ({:.2}%)", format_yen(increase), percentage),
+            costs_display,
+            monthly_after_costs.map_or("N/A".to_string(), |c| format_yen(c))
         );
+
+        // Add savings columns
+        if let Some(after_costs) = monthly_after_costs {
+            for timeframe in timeframes {
+                let savings = after_costs * timeframe.months;
+                print!(" | {:<18}", format_yen(savings));
+            }
+        } else {
+            for _ in timeframes {
+                print!(" | {:<18}", "N/A");
+            }
+        }
+        println!();
     } else {
         println!(
-            "{:<15} {:<20} {:<20} {:<25}",
+            "{:<15} | {:<18} | {:<18} | {:<23} | {:<18}",
             formatted_annual,
             format_yen(monthly_salary),
             format_yen(monthly_take_home),
-            format!("{} ({:.2}%)", format_yen(0), 0.00)
+            format!("{} ({:.2}%)", format_yen(0), 0.00),
+            monthly_after_costs.map_or("N/A".to_string(), |c| format_yen(c))
         );
     }
 
@@ -439,38 +516,95 @@ fn main() {
     let num_dependents = 2; // 2 dependents
     let comparative_income = Some(15_000_000); // JPY
 
+    let timeframes = vec![
+        SavingsTimeframe {
+            months: 3,
+            label: "3 Months".to_string(),
+        },
+        SavingsTimeframe {
+            months: 6,
+            label: "6 Months".to_string(),
+        },
+        SavingsTimeframe {
+            months: 12,
+            label: "1 Year".to_string(),
+        },
+        SavingsTimeframe {
+            months: 24,
+            label: "2 Years".to_string(),
+        },
+        SavingsTimeframe {
+            months: 60,
+            label: "5 Years".to_string(),
+        },
+    ];
+
     let income_levels = vec![
         IncomeAnalysis {
             annual_income: 15_000_000,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 750_000,
+                percentage_costs: 0.0,
+            }),
             log_config: Some(LogConfig::none()),
         },
         IncomeAnalysis {
             annual_income: 18_000_000,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 750_000,
+                percentage_costs: 10.0,
+            }),
             log_config: Some(LogConfig::none()),
         },
         IncomeAnalysis {
             annual_income: 20_000_000,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 750_000,
+                percentage_costs: 10.0,
+            }),
             log_config: Some(LogConfig::none()),
         },
         IncomeAnalysis {
             annual_income: 22_000_000,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 750_000,
+                percentage_costs: 10.0,
+            }),
             log_config: Some(LogConfig::none()),
         },
         IncomeAnalysis {
             annual_income: 25_000_000,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 750_000,
+                percentage_costs: 10.0,
+            }),
             log_config: Some(LogConfig::none()),
         },
         IncomeAnalysis {
             annual_income: 30_000_000,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 750_000,
+                percentage_costs: 10.0,
+            }),
             log_config: Some(LogConfig::none()),
         },
         IncomeAnalysis {
             annual_income: 100_000_000,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 750_000,
+                percentage_costs: 10.0,
+            }),
             log_config: Some(LogConfig::none()),
         },
     ];
 
     for (index, income) in income_levels.into_iter().enumerate() {
-        analyze_income(income, comparative_income, num_dependents, index == 0);
+        analyze_income(
+            income,
+            comparative_income,
+            num_dependents,
+            &timeframes,
+            index == 0,
+        );
     }
 }
