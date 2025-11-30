@@ -8,14 +8,14 @@ struct LogConfig {
 }
 
 impl LogConfig {
-    // fn all() -> Self {
-    //     LogConfig {
-    //         show_deductions: true,
-    //         show_tax_breakdown: true,
-    //         show_insurance_breakdown: true,
-    //         show_summary: true,
-    //     }
-    // }
+    fn all() -> Self {
+        LogConfig {
+            show_deductions: true,
+            show_tax_breakdown: true,
+            show_insurance_breakdown: true,
+            show_summary: true,
+        }
+    }
 
     // fn summary_only() -> Self {
     //     LogConfig {
@@ -307,16 +307,17 @@ fn calculate_take_home(
 
     let gross_national_tax_liability = get_income_tax(national_tax_basis);
     let national_surtax: i64 = gross_national_tax_liability * 210 / 10_000;
-    let national_tax =
-        gross_national_tax_liability + national_surtax - NATIONAL_FIXED_AMOUNT_TAX_REDUCTION;
+    let national_tax = (gross_national_tax_liability + national_surtax)
+        .saturating_sub(NATIONAL_FIXED_AMOUNT_TAX_REDUCTION)
+        .max(0);
 
     let local_tax_basis = income_after_earned_income_deduction - local_exemption;
     let with_equaliser_gross_tax = local_tax_basis;
     let prefectural_tax = get_prefectural_tax(with_equaliser_gross_tax);
     let municipal_tax = get_municipal_tax(with_equaliser_gross_tax);
-    let local_tax = prefectural_tax + municipal_tax
-        - LOCAL_FIXED_AMOUNT_TAX_REDUCTION
-        - EQUALISATION_PER_CAPITA_TAX;
+    let local_tax = (prefectural_tax + municipal_tax)
+        .saturating_sub(LOCAL_FIXED_AMOUNT_TAX_REDUCTION + EQUALISATION_PER_CAPITA_TAX)
+        .max(0);
 
     let health_insurance = get_health_insurance(local_tax_basis, num_dependents);
     let pension_insurance = get_pension_insurance(local_tax_basis);
@@ -429,7 +430,7 @@ fn analyze_income(
     // Print header if this is the first item
     if is_first {
         let mut header = format!(
-            "{:<12} | {:<16} | {:<16} | {:<21} | {:<23} | {:<15}",
+            "{:^12} | {:^16} | {:^16} | {:^21} | {:^23} | {:^15}",
             "Annual Salary",
             "Monthly Salary",
             "Monthly Takehome",
@@ -477,7 +478,7 @@ fn analyze_income(
 
         // Print base columns
         print!(
-            "{:<13} | {:<16} | {:<16} | {:<21} | {:<23} | {:<15}",
+            "{:>13} | {:>16} | {:>16} | {:>21} | {:>23} | {:>15}",
             formatted_annual,
             format_yen(monthly_salary),
             format_yen(monthly_take_home),
@@ -514,48 +515,32 @@ fn analyze_income(
 
 fn main() {
     let num_dependents = 2; // 2 dependents
-    let comparative_income = Some(15_000_000); // JPY
+    let comparative_income = Some(20_000_000); // JPY
 
     let timeframes = vec![
-        SavingsTimeframe {
-            months: 3,
-            label: "3 Months".to_string(),
-        },
-        SavingsTimeframe {
-            months: 6,
-            label: "6 Months".to_string(),
-        },
+        // SavingsTimeframe {
+        //     months: 3,
+        //     label: "3 Months".to_string(),
+        // },
+        // SavingsTimeframe {
+        //     months: 6,
+        //     label: "6 Months".to_string(),
+        // },
         SavingsTimeframe {
             months: 12,
             label: "1 Year".to_string(),
         },
-        SavingsTimeframe {
-            months: 24,
-            label: "2 Years".to_string(),
-        },
-        SavingsTimeframe {
-            months: 60,
-            label: "5 Years".to_string(),
-        },
+        // SavingsTimeframe {
+        //     months: 24,
+        //     label: "2 Years".to_string(),
+        // },
+        // SavingsTimeframe {
+        //     months: 60,
+        //     label: "5 Years".to_string(),
+        // },
     ];
 
     let income_levels = vec![
-        IncomeAnalysis {
-            annual_income: 15_000_000,
-            monthly_costs: Some(MonthlyCosts {
-                fixed_costs: 750_000,
-                percentage_costs: 0.0,
-            }),
-            log_config: Some(LogConfig::none()),
-        },
-        IncomeAnalysis {
-            annual_income: 18_000_000,
-            monthly_costs: Some(MonthlyCosts {
-                fixed_costs: 750_000,
-                percentage_costs: 10.0,
-            }),
-            log_config: Some(LogConfig::none()),
-        },
         IncomeAnalysis {
             annual_income: 20_000_000,
             monthly_costs: Some(MonthlyCosts {
@@ -565,7 +550,7 @@ fn main() {
             log_config: Some(LogConfig::none()),
         },
         IncomeAnalysis {
-            annual_income: 22_000_000,
+            annual_income: 23_000_000,
             monthly_costs: Some(MonthlyCosts {
                 fixed_costs: 750_000,
                 percentage_costs: 10.0,
@@ -581,7 +566,7 @@ fn main() {
             log_config: Some(LogConfig::none()),
         },
         IncomeAnalysis {
-            annual_income: 30_000_000,
+            annual_income: 28_000_000,
             monthly_costs: Some(MonthlyCosts {
                 fixed_costs: 750_000,
                 percentage_costs: 10.0,
@@ -589,7 +574,7 @@ fn main() {
             log_config: Some(LogConfig::none()),
         },
         IncomeAnalysis {
-            annual_income: 100_000_000,
+            annual_income: 30_000_000,
             monthly_costs: Some(MonthlyCosts {
                 fixed_costs: 750_000,
                 percentage_costs: 10.0,
@@ -598,6 +583,8 @@ fn main() {
         },
     ];
 
+    println!();
+    println!("Calculating take-home pay for various income levels...");
     for (index, income) in income_levels.into_iter().enumerate() {
         analyze_income(
             income,
@@ -607,4 +594,95 @@ fn main() {
             index == 0,
         );
     }
+
+    let income_levels_fixed_costs = vec![
+        // IncomeAnalysis {
+        //     annual_income: 15_000_000,
+        //     monthly_costs: Some(MonthlyCosts {
+        //         fixed_costs: 750_000,
+        //         percentage_costs: 0.0,
+        //     }),
+        //     log_config: Some(LogConfig::none()),
+        // },
+        IncomeAnalysis {
+            annual_income: 20_000_000,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 800_000,
+                percentage_costs: 0.0,
+            }),
+            log_config: Some(LogConfig::none()),
+        },
+        IncomeAnalysis {
+            annual_income: 23_000_000,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 850_000,
+                percentage_costs: 0.0,
+            }),
+            log_config: Some(LogConfig::none()),
+        },
+        IncomeAnalysis {
+            annual_income: 25_000_000,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 850_000,
+                percentage_costs: 0.0,
+            }),
+            log_config: Some(LogConfig::none()),
+        },
+        IncomeAnalysis {
+            annual_income: 28_000_000,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 850_000,
+                percentage_costs: 0.0,
+            }),
+            log_config: Some(LogConfig::none()),
+        },
+        IncomeAnalysis {
+            annual_income: 30_000_000,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 850_000,
+                percentage_costs: 0.0,
+            }),
+            log_config: Some(LogConfig::none()),
+        },
+    ];
+    println!();
+    println!("-------------------------------------------------");
+    println!();
+    println!("Calculating take-home pay for various income levels with fixed costs...");
+    for (index, income) in income_levels_fixed_costs.into_iter().enumerate() {
+        analyze_income(
+            income,
+            comparative_income,
+            num_dependents,
+            &timeframes,
+            index == 0,
+        );
+    }
+
+    let income_levels_nami = vec![
+        IncomeAnalysis {
+            annual_income: 1_040_000,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 0,
+                percentage_costs: 0.0,
+            }),
+            log_config: Some(LogConfig::none()),
+        },
+        IncomeAnalysis {
+            annual_income: 3_160_000,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 0,
+                percentage_costs: 0.0,
+            }),
+            log_config: Some(LogConfig::none()),
+        },
+    ];
+
+    println!();
+    println!("-------------------------------------------------");
+    println!();
+    // println!("Calculating take-home pay for Nami...");
+    // for (index, income) in income_levels_nami.into_iter().enumerate() {
+    //     analyze_income(income, Some(1_040_000), 0, &timeframes, index == 0);
+    // }
 }
