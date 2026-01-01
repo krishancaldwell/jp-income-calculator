@@ -90,13 +90,12 @@ const TAX_BRACKETS: [(i64, i64); 7] = [
 /// - ¥3,600,000 to ¥6,599,999: 20% of income plus ¥440,000
 /// - ¥6,600,000 to ¥8,499,999: 10% of income plus ¥1,100,000
 /// - ¥8,500,000 and above: Flat ¥1,950,000
-const BASIC_DEDUCTION_BRACKETS: [(i64, i64, i64); 6] = [
-    (1_624_999, 0, 550_000),      // Up to 1,624,999
-    (1_799_999, 4000, -100_000),  // 1,625,000 to 1,799,999
-    (3_599_999, 3000, 80_000),    // 1,800,000 to 3,599,999
-    (6_599_999, 2000, 440_000),   // 3,600,000 to 6,599,999
-    (8_499_999, 1000, 1_100_000), // 6,600,000 to 8,499,999
-    (i64::MAX, 0, 1_950_000),     // 8,500,000 and above
+const BASIC_DEDUCTION_BRACKETS: [(i64, i64, i64); 5] = [
+    (1_900_000, 0, 650_000),      // ✓ Flat ¥650,000 up to ¥1.9M
+    (3_600_000, 3000, 80_000),    // ✓ 30% + ¥80,000
+    (6_600_000, 2000, 440_000),   // ✓ 20% + ¥440,000
+    (8_500_000, 1000, 1_100_000), // ✓ 10% + ¥1,100,000
+    (i64::MAX, 0, 1_950_000),     // ✓ Flat ¥1,950,000 cap
 ];
 
 /// Personal exemption brackets for both national and local tax calculations.
@@ -107,11 +106,16 @@ const BASIC_DEDUCTION_BRACKETS: [(i64, i64, i64); 6] = [
 /// - ¥24,000,000 to ¥24,499,999: National ¥320,000, Local ¥290,000
 /// - ¥24,500,000 to ¥24,999,999: National ¥160,000, Local ¥150,000
 /// - ¥25,000,000 and above: No exemptions
-const PERSONAL_EXEMPTION_BRACKETS: [(i64, i64, i64); 4] = [
-    (23_999_999, 480_000, 430_000), // Up to 23,999,999
-    (24_499_999, 320_000, 290_000), // 24,000,000 to 24,499,999
-    (24_999_999, 160_000, 150_000), // 24,500,000 to 24,999,999
-    (i64::MAX, 0, 0),               // 25,000,000 and above
+const PERSONAL_EXEMPTION_BRACKETS: [(i64, i64, i64); 9] = [
+    (1_320_000, 950_000, 430_000),  // New bracket
+    (3_360_000, 880_000, 430_000),  // New bracket
+    (4_890_000, 680_000, 430_000),  // New bracket
+    (6_550_000, 630_000, 430_000),  // New bracket
+    (23_500_000, 580_000, 430_000), // ✓ This is where 20M falls!
+    (24_000_000, 480_000, 430_000), // Updated threshold
+    (24_500_000, 320_000, 290_000),
+    (25_000_000, 160_000, 150_000),
+    (i64::MAX, 0, 0),
 ];
 
 const PREFECTURAL_TAX_RATE: i64 = 400;
@@ -120,8 +124,9 @@ const MUNICIPAL_TAX_RATE: i64 = 600;
 
 const EQUALISATION_PER_CAPITA_TAX: i64 = 5_000;
 
+const FOREST_ENVIRONMENTAL_TAX: i64 = 1_000; // New tax introduced in 2024
+
 const NATIONAL_FIXED_AMOUNT_TAX_REDUCTION: i64 = 30_000;
-const LOCAL_FIXED_AMOUNT_TAX_REDUCTION: i64 = 10_000;
 
 /// Constants for health insurance calculations in Setagaya
 const BASIC_HEALTH_INSURANCE_RATE: i64 = 869; // 8.69%
@@ -132,10 +137,10 @@ const DEPENDENT_SUPPORT_AMOUNT: i64 = 16_500;
 const ANNUAL_BASIC_CAP: i64 = 650_000;
 const ANNUAL_SUPPORT_CAP: i64 = 240_000;
 
-const UNEMPLOYMENT_INSURANCE_RATE: i64 = 60; // 0.6%
+const UNEMPLOYMENT_INSURANCE_RATE: i64 = 55; // 0.55%
 
 const PENSION_INSURANCE_RATE: i64 = 915; // 9.15%
-const PENSION_INSURANCE_CAP: i64 = 713_700;
+const PENSION_INSURANCE_CAP: i64 = 650_000;
 
 fn format_yen(amount: i64) -> String {
     let num_str = amount.to_string();
@@ -315,9 +320,8 @@ fn calculate_take_home(
     let with_equaliser_gross_tax = local_tax_basis;
     let prefectural_tax = get_prefectural_tax(with_equaliser_gross_tax);
     let municipal_tax = get_municipal_tax(with_equaliser_gross_tax);
-    let local_tax = (prefectural_tax + municipal_tax)
-        .saturating_sub(LOCAL_FIXED_AMOUNT_TAX_REDUCTION + EQUALISATION_PER_CAPITA_TAX)
-        .max(0);
+    let local_tax =
+        prefectural_tax + municipal_tax + EQUALISATION_PER_CAPITA_TAX + FOREST_ENVIRONMENTAL_TAX;
 
     let health_insurance = get_health_insurance(local_tax_basis, num_dependents);
     let pension_insurance = get_pension_insurance(local_tax_basis);
@@ -550,7 +554,7 @@ fn main() {
             log_config: Some(LogConfig::none()),
         },
         IncomeAnalysis {
-            annual_income: 23_000_000,
+            annual_income: 25_000_000,
             monthly_costs: Some(MonthlyCosts {
                 fixed_costs: 750_000,
                 percentage_costs: 10.0,
@@ -558,7 +562,7 @@ fn main() {
             log_config: Some(LogConfig::none()),
         },
         IncomeAnalysis {
-            annual_income: 25_000_000,
+            annual_income: 27_000_000,
             monthly_costs: Some(MonthlyCosts {
                 fixed_costs: 750_000,
                 percentage_costs: 10.0,
@@ -629,6 +633,14 @@ fn main() {
             log_config: Some(LogConfig::none()),
         },
         IncomeAnalysis {
+            annual_income: 27_000_000,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 850_000,
+                percentage_costs: 0.0,
+            }),
+            log_config: Some(LogConfig::none()),
+        },
+        IncomeAnalysis {
             annual_income: 28_000_000,
             monthly_costs: Some(MonthlyCosts {
                 fixed_costs: 850_000,
@@ -669,6 +681,14 @@ fn main() {
             log_config: Some(LogConfig::none()),
         },
         IncomeAnalysis {
+            annual_income: 2_773_333,
+            monthly_costs: Some(MonthlyCosts {
+                fixed_costs: 0,
+                percentage_costs: 0.0,
+            }),
+            log_config: Some(LogConfig::none()),
+        },
+        IncomeAnalysis {
             annual_income: 3_160_000,
             monthly_costs: Some(MonthlyCosts {
                 fixed_costs: 0,
@@ -681,8 +701,8 @@ fn main() {
     println!();
     println!("-------------------------------------------------");
     println!();
-    // println!("Calculating take-home pay for Nami...");
-    // for (index, income) in income_levels_nami.into_iter().enumerate() {
-    //     analyze_income(income, Some(1_040_000), 0, &timeframes, index == 0);
-    // }
+    println!("Calculating take-home pay for Nami...");
+    for (index, income) in income_levels_nami.into_iter().enumerate() {
+        analyze_income(income, Some(1_040_000), 0, &timeframes, index == 0);
+    }
 }
